@@ -1,1 +1,17 @@
-
+guid,name,ifc_type,storey,zone,task,quantity
+C1,Column A1,IfcColumn,1,A,Install columns,1
+C2,Column A2,IfcColumn,1,A,Install columns,1
+C3,Column B1,IfcColumn,1,B,Install columns,1
+C4,Column B2,IfcColumn,1,B,Install columns,1
+B1,Beam A1-A2,IfcBeam,1,A,Install beams,1
+B2,Beam B1-B2,IfcBeam,1,B,Install beams,1
+S1,Slab A,IfcSlab,1,A,Install slabs,1
+S2,Slab B,IfcSlab,1,B,Install slabs,1
+C5,Column A1 L2,IfcColumn,2,A,Install columns,1
+C6,Column A2 L2,IfcColumn,2,A,Install columns,1
+C7,Column B1 L2,IfcColumn,2,B,Install columns,1
+C8,Column B2 L2,IfcColumn,2,B,Install columns,1
+B3,Beam A1-A2 L2,IfcBeam,2,A,Install beams,1
+B4,Beam B1-B2 L2,IfcBeam,2,B,Install beams,1
+S3,Slab A L2,IfcSlab,2,A,Install slabs,1
+S4,Slab B L2,IfcSlab,2,B,Install slabs,1

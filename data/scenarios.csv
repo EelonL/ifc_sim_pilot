@@ -1,0 +1,5 @@
+scenario,crew_count,crane_count,elements_per_crew_per_day,delivery_reliability,rework_probability
+Base,1,1,4,0.95,0.02
+More crew,2,1,4,0.95,0.02
+Delivery delays,1,1,4,0.75,0.05
+More crane capacity,2,2,4,0.95,0.02
