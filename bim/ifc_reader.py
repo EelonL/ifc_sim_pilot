@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import re
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import BinaryIO
 
 import pandas as pd
 
@@ -23,7 +22,10 @@ SUPPORTED_TYPES = [
     "IfcStair",
 ]
 
-REQUIRED_COLUMNS = ["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]
+REQUIRED_COLUMNS = [
+    "guid", "name", "ifc_type", "storey", "zone", "task", "quantity",
+    "material", "material_category", "parent_assembly_guid", "parent_assembly_name",
+]
 
 
 def uploaded_bytes(uploaded_file) -> bytes:
@@ -47,11 +49,30 @@ def diagnose_ifc(uploaded_file) -> pd.DataFrame:
     return df
 
 
+def diagnose_materials(uploaded_file) -> pd.DataFrame:
+    """Text-level material association count by assigned IFC object ids."""
+    raw = uploaded_bytes(uploaded_file)
+    text = raw.decode("utf-8", errors="ignore")
+    material_map = _parse_material_associations(text)
+    counts = Counter(material_map.values())
+    rows = []
+    for material, count in counts.items():
+        rows.append({
+            "material": material,
+            "material_category": _material_category(material),
+            "assigned_object_count": count,
+        })
+    if not rows:
+        return pd.DataFrame(columns=["material", "material_category", "assigned_object_count"])
+    return pd.DataFrame(rows).sort_values(["assigned_object_count", "material"], ascending=[False, True]).reset_index(drop=True)
+
+
 def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataFrame:
     """Read structural-ish elements from an uploaded IFC file.
 
-    Returns one row per IFC object. Large models should usually be aggregated
-    in the app before simulation.
+    Returns one row per IFC object, enriched with material and parent assembly
+    information when available. Large models should usually be aggregated or
+    read with assembly-child filtering in the app before simulation.
     """
     try:
         import ifcopenshell
@@ -62,6 +83,9 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
         ) from exc
 
     raw = uploaded_bytes(uploaded_file)
+    text = raw.decode("utf-8", errors="ignore")
+    material_by_step_id = _parse_material_associations(text)
+
     suffix = Path(getattr(uploaded_file, "name", "model.ifc")).suffix or ".ifc"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(raw)
@@ -82,6 +106,8 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
             storey = _safe_storey(obj)
             zone = _infer_zone(name)
             task = _default_task(ifc_type, name)
+            material = material_by_step_id.get(int(obj.id()), "Unknown")
+            parent_guid, parent_name = _parent_assembly(obj)
             rows.append(
                 {
                     "guid": guid or f"NO-GUID-{ifc_type}-{len(rows)}",
@@ -91,6 +117,10 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
                     "zone": zone,
                     "task": task,
                     "quantity": 1,
+                    "material": material,
+                    "material_category": _material_category(material),
+                    "parent_assembly_guid": parent_guid or "",
+                    "parent_assembly_name": parent_name or "",
                 }
             )
             if max_objects is not None and len(rows) >= max_objects:
@@ -106,6 +136,58 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
     df["zone"] = df["zone"].fillna("A")
     df = df.drop_duplicates(subset=["guid"], keep="first")
     return df[REQUIRED_COLUMNS]
+
+
+def _parse_material_associations(text: str) -> dict[int, str]:
+    """Parse simple IfcMaterial and IfcRelAssociatesMaterial relationships.
+
+    This is intentionally text-based because it is fast and gives us material
+    names before/alongside IfcOpenShell object extraction. It handles direct
+    relationships where the relating material is #id of IFCMATERIAL.
+    """
+    material_names: dict[int, str] = {}
+    material_re = re.compile(r"#(\d+)\s*=\s*IFCMATERIAL\s*\(\s*'((?:[^']|'')*)'", re.IGNORECASE)
+    for m in material_re.finditer(text):
+        material_names[int(m.group(1))] = m.group(2).replace("''", "'")
+
+    obj_to_material: dict[int, str] = {}
+    rel_re = re.compile(
+        r"#\d+\s*=\s*IFCRELASSOCIATESMATERIAL\s*\([^;]*?\((#[\d#,\s]+)\)\s*,\s*#(\d+)\s*\)\s*;",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for rel in rel_re.finditer(text):
+        object_refs = [int(x) for x in re.findall(r"#(\d+)", rel.group(1))]
+        mat_id = int(rel.group(2))
+        mat_name = material_names.get(mat_id, f"Material #{mat_id}")
+        for oid in object_refs:
+            obj_to_material[oid] = mat_name
+    return obj_to_material
+
+
+def _material_category(material: str | None) -> str:
+    text = str(material or "").upper()
+    if "STEEL" in text or "S355" in text or "AISI" in text or "TERÄS" in text:
+        return "Steel"
+    if "CONCRETE" in text or "BETON" in text or re.search(r"\bC\d{2}/\d{2}\b", text):
+        return "Concrete"
+    if "WOOD" in text or "TIMBER" in text or "PUU" in text:
+        return "Timber"
+    if "EPS" in text or "FINNFOAM" in text or "THERMISOL" in text or "PAROC" in text or "KIVIVILLA" in text:
+        return "Insulation"
+    if "UNDEFINED" in text or not text or text == "UNKNOWN":
+        return "Unknown"
+    return "Other"
+
+
+def _parent_assembly(obj) -> tuple[str, str]:
+    try:
+        for rel in getattr(obj, "Decomposes", []) or []:
+            parent = getattr(rel, "RelatingObject", None)
+            if parent is not None and parent.is_a("IfcElementAssembly"):
+                return str(getattr(parent, "GlobalId", "") or ""), str(getattr(parent, "Name", "") or "IfcElementAssembly")
+    except Exception:
+        pass
+    return "", ""
 
 
 def _safe_storey(obj) -> int:
@@ -161,8 +243,8 @@ def _default_task(ifc_type: str, name: str | None = None) -> str:
         return "Install slabs"
     if "wall" in text or "seinä" in text:
         return "Install walls"
-    if "member" in text or "assembly" in text or "proxy" in text or "plate" in text:
+    if "assembly" in text or "ristikko" in text or "truss" in text:
+        return "Install assemblies"
+    if "member" in text or "plate" in text:
         return "Install members"
-    if "footing" in text or "pile" in text:
-        return "Install elements"
     return "Install elements"
