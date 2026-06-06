@@ -1,3 +1,5 @@
+# IFC Simulation Pilot v5.1
+
 # IFC Frame Simulation Pilot v5
 
 Kevyt Streamlit-pilotti, jossa IFC- tai CSV-lähtödata muunnetaan runko-osiksi / työpaketeiksi ja simuloidaan asennuksen etenemistä eri skenaarioissa.
@@ -27,3 +29,8 @@ streamlit run app.py
 ## Tärkeä rajaus
 
 3D-näkymä ei ole vielä tarkka BIM-geometriaviewer. Se näyttää asennusyksiköt tai työpaketit pisteinä IFC-sijainnin perusteella. Seuraavat mahdolliset kehitysvaiheet ovat bounding box -geometria, glTF/IFC-viewer ja tarkempi GUID-kohtainen väritys.
+
+
+## v5.1 patch
+
+This patch fixes a Streamlit slider edge case in the 3D status view. If a selected filter produces a schedule with only one simulated day, the day selector is locked to day 1 instead of calling `st.slider(1, 1, 1)`, which can raise a Streamlit API error.

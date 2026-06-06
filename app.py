@@ -267,9 +267,26 @@ st.plotly_chart(fig, width="stretch")
 
 st.subheader("Päiväkohtainen tilanne ja 3D-näkymä")
 if not schedule.empty:
-    day = st.slider("Valitse päivä", 1, int(schedule["finish_day"].max()), 1)
-    day_df = status_for_day(schedule, day)
-    pivot = day_df.groupby(["storey", "zone", "status"], dropna=False)["quantity"].sum().reset_index(name="quantity")
+    # Streamlitin slider vaatii, että min_value < max_value.
+    # Joillakin rajauksilla simulaation kesto voi olla vain 1 päivä, jolloin
+    # st.slider(1, 1, 1) kaatuu. Siksi käsitellään lyhyet aikataulut erikseen.
+    finish_values = pd.to_numeric(schedule.get("finish_day"), errors="coerce").dropna()
+    if finish_values.empty:
+        st.warning("Aikataulusta ei löytynyt kelvollista finish_day-saraketta 3D-näkymää varten.")
+        day_df = pd.DataFrame()
+    else:
+        max_day = int(max(1, finish_values.max()))
+        if max_day <= 1:
+            day = 1
+            st.info("Simulaation kesto on tällä rajauksella vain yksi päivä, joten päivävalitsin on lukittu päivään 1.")
+        else:
+            day = st.slider("Valitse päivä", min_value=1, max_value=max_day, value=1, step=1)
+        day_df = status_for_day(schedule, day)
+
+    if not day_df.empty:
+        pivot = day_df.groupby(["storey", "zone", "status"], dropna=False)["quantity"].sum().reset_index(name="quantity")
+    else:
+        pivot = pd.DataFrame(columns=["storey", "zone", "status", "quantity"])
 
     status_tab, view3d_tab, table_tab = st.tabs(["Yhteenveto", "3D-statusnäkymä", "Taulukko"])
 

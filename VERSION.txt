@@ -1,4 +1,5 @@
-IFC Simulation Pilot v5
-- Adds lightweight 3D status view with day slider
-- Reads approximate x/y/z from IFC ObjectPlacement
-- Aggregates work package coordinates from underlying elements
+IFC Simulation Pilot v5.1
+
+Patch release:
+- Fixes Streamlit slider crash when the simulated schedule duration is 1 day or finish_day values are missing.
+- Keeps the lightweight 3D status view introduced in v5.
