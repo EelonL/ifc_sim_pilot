@@ -1,88 +1,52 @@
 # IFC Frame Simulation Pilot
 
-Kevyt Streamlit-pilotti, jolla kytketään IFC-mallin runko-osat yksinkertaiseen diskreettiin rakennusjärjestyssimulaatioon.
+A lightweight Streamlit pilot for connecting IFC model objects to a simple production simulation.
 
-## Ensimmäisen version idea
+## What it does
 
-- IFC tai CSV tuottaa rakenneosat.
-- Simulaatio järjestää ne kerroksen, lohkon ja työvaiheen mukaan.
-- Käyttäjä valitsee skenaarion: työryhmät, nosturit, asennusnopeus, toimitusvarmuus ja uudelleentyön todennäköisyys.
-- Sovellus tuottaa aikataulun, päiväkohtaisen statuksen ja Excel-latauksen.
+- Reads frame/structure-like IFC objects with IfcOpenShell.
+- Shows IFC diagnostics: entity counts and which classes the pilot uses.
+- Optionally aggregates thousands of IFC objects into work packages.
+- Runs a simple scenario simulation with crews, cranes, installation rate, delivery reliability and rework probability.
+- Exports results to Excel.
 
-## Kansiorakenne
+## Why aggregation is the default
+
+Real IFC files may contain tens of thousands of elements. Simulating and drawing every object as a separate timeline row can make Streamlit slow or memory-heavy. For the first pilot, the recommended mode is:
 
 ```text
-.
-├── app.py
-├── requirements.txt
-├── .streamlit/
-│   └── config.toml
-├── bim/
-│   └── ifc_reader.py
-├── model/
-│   └── simulation.py
-├── data/
-│   ├── sample_elements.csv
-│   └── scenarios.csv
-└── outputs/
+IFC objects -> work packages by storey + zone + task + IFC type -> simulation
 ```
 
-## Paikallinen ajo
+## Deploy on Streamlit Community Cloud
 
-```bash
-py -m venv .venv
-.venv\Scripts\activate
-py -m pip install -r requirements.txt
-streamlit run app.py
-```
+1. Push this repository to GitHub.
+2. In Streamlit Community Cloud, select this repository.
+3. Set the main file to `app.py`.
+4. Deploy.
 
-Mac/Linux:
+The repository includes `runtime.txt` with Python 3.12.
+
+## Local run
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+.venv\Scripts\activate  # Windows
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Streamlit Community Cloud
+## Input CSV columns
 
-1. Luo GitHub-repositorio.
-2. Lisää nämä tiedostot repositorion juureen.
-3. Mene osoitteeseen https://share.streamlit.io.
-4. Valitse GitHub-repositorio ja entrypointiksi `app.py`.
-5. Valitse Python-versioksi mieluiten 3.11 tai 3.12.
-6. Deploy.
-
-## CSV-muoto omalle datalle
-
-CSV:ssä pitää olla nämä sarakkeet:
+CSV mode expects:
 
 ```text
 guid,name,ifc_type,storey,zone,task,quantity
 ```
 
-Esimerkki:
+## Current limitations
 
-```csv
-guid,name,ifc_type,storey,zone,task,quantity
-C1,Column A1,IfcColumn,1,A,Install columns,1
-B1,Beam A1-A2,IfcBeam,1,A,Install beams,1
-S1,Slab A,IfcSlab,1,A,Install slabs,1
-```
-
-## Seuraavat kehitysaskeleet
-
-1. IFC-geometrian vienti kevyempään visualisointimuotoon.
-2. GUID-kohtainen 3D-väritys statuksen mukaan.
-3. Tarkempi riippuvuuslogiikka: pilari → palkki → laatta → seuraava kerros.
-4. Nosturin, toimitusten, varastoinnin ja työryhmien agenttipohjainen mallinnus.
-5. Useiden skenaarioiden rinnakkainen vertailu.
-
-## v2 debug notes
-
-If Streamlit logs show only warnings such as `Please replace use_container_width with width`, the app has not crashed. In v2 these warnings have been removed by using `width="stretch"`.
-
-This version also uses a broader IFC element reader. Many real exports do not use only `IfcColumn`, `IfcBeam` and `IfcSlab`; they may use `IfcBuildingElementProxy`, `IfcElementAssembly`, `IfcPlate`, `IfcWallStandardCase` or other classes. The reader now includes these common alternatives.
-
-For Streamlit Community Cloud, `runtime.txt` requests Python 3.12 and `requirements.txt` avoids untested major package versions.
+- No 3D geometry viewer yet.
+- No true construction sequencing from geometry.
+- Storey and zone inference is still rough.
+- The simulation is intentionally transparent and simple.
