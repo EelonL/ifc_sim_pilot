@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import tempfile
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -25,6 +25,7 @@ SUPPORTED_TYPES = [
 REQUIRED_COLUMNS = [
     "guid", "name", "ifc_type", "storey", "zone", "task", "quantity",
     "material", "material_category", "parent_assembly_guid", "parent_assembly_name",
+    "x", "y", "z",
 ]
 
 
@@ -70,9 +71,10 @@ def diagnose_materials(uploaded_file) -> pd.DataFrame:
 def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataFrame:
     """Read structural-ish elements from an uploaded IFC file.
 
-    Returns one row per IFC object, enriched with material and parent assembly
-    information when available. Large models should usually be aggregated or
-    read with assembly-child filtering in the app before simulation.
+    Returns one row per IFC object, enriched with material, parent assembly and
+    approximate placement coordinates (x, y, z) when available. The coordinate
+    extraction uses IFC ObjectPlacement, not full geometry, so it is lightweight
+    enough for Streamlit Cloud but approximate.
     """
     try:
         import ifcopenshell
@@ -108,6 +110,7 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
             task = _default_task(ifc_type, name)
             material = material_by_step_id.get(int(obj.id()), "Unknown")
             parent_guid, parent_name = _parent_assembly(obj)
+            x, y, z = _object_placement_xyz(obj)
             rows.append(
                 {
                     "guid": guid or f"NO-GUID-{ifc_type}-{len(rows)}",
@@ -121,6 +124,9 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
                     "material_category": _material_category(material),
                     "parent_assembly_guid": parent_guid or "",
                     "parent_assembly_name": parent_name or "",
+                    "x": x,
+                    "y": y,
+                    "z": z,
                 }
             )
             if max_objects is not None and len(rows) >= max_objects:
@@ -134,17 +140,14 @@ def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataF
     df = pd.DataFrame(rows)
     df["storey"] = pd.to_numeric(df["storey"], errors="coerce").fillna(1).astype(int)
     df["zone"] = df["zone"].fillna("A")
+    for col in ["x", "y", "z"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.drop_duplicates(subset=["guid"], keep="first")
     return df[REQUIRED_COLUMNS]
 
 
 def _parse_material_associations(text: str) -> dict[int, str]:
-    """Parse simple IfcMaterial and IfcRelAssociatesMaterial relationships.
-
-    This is intentionally text-based because it is fast and gives us material
-    names before/alongside IfcOpenShell object extraction. It handles direct
-    relationships where the relating material is #id of IFCMATERIAL.
-    """
+    """Parse simple IfcMaterial and IfcRelAssociatesMaterial relationships."""
     material_names: dict[int, str] = {}
     material_re = re.compile(r"#(\d+)\s*=\s*IFCMATERIAL\s*\(\s*'((?:[^']|'')*)'", re.IGNORECASE)
     for m in material_re.finditer(text):
@@ -188,6 +191,45 @@ def _parent_assembly(obj) -> tuple[str, str]:
     except Exception:
         pass
     return "", ""
+
+
+def _object_placement_xyz(obj) -> tuple[float | None, float | None, float | None]:
+    """Return approximate absolute placement coordinates.
+
+    This recursively sums IfcLocalPlacement.Location coordinates. It ignores
+    local axis rotation, so it is intended for an approximate 3D status view,
+    not for measurement or clash geometry.
+    """
+    try:
+        placement = getattr(obj, "ObjectPlacement", None)
+        return _placement_xyz(placement)
+    except Exception:
+        return None, None, None
+
+
+def _placement_xyz(placement, depth: int = 0) -> tuple[float | None, float | None, float | None]:
+    if placement is None or depth > 20:
+        return 0.0, 0.0, 0.0
+
+    px, py, pz = 0.0, 0.0, 0.0
+    try:
+        parent = getattr(placement, "PlacementRelTo", None)
+        if parent is not None:
+            p = _placement_xyz(parent, depth + 1)
+            px, py, pz = [float(v or 0.0) for v in p]
+    except Exception:
+        pass
+
+    try:
+        rel = getattr(placement, "RelativePlacement", None)
+        loc = getattr(rel, "Location", None)
+        coords = list(getattr(loc, "Coordinates", []) or [])
+        x = float(coords[0]) if len(coords) > 0 else 0.0
+        y = float(coords[1]) if len(coords) > 1 else 0.0
+        z = float(coords[2]) if len(coords) > 2 else 0.0
+        return px + x, py + y, pz + z
+    except Exception:
+        return px, py, pz
 
 
 def _safe_storey(obj) -> int:
