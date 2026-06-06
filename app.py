@@ -53,13 +53,23 @@ try:
         elements = load_sample_elements()
         st.info("Ladataan toistaiseksi esimerkkidata, kunnes valitset tiedoston.")
 
+    raw_count = len(elements)
     elements = normalize_elements(elements)
 except Exception as exc:
     st.error(f"Lähtödatan lukeminen epäonnistui: {exc}")
     st.stop()
 
+if elements.empty:
+    st.warning(
+        "IFC/CSV luettiin, mutta simulaatioon sopivia rakenneosia ei löytynyt. "
+        "Tämä tarkoittaa yleensä, että IFC:n objektit ovat eri IFC-luokissa kuin pilotin nykyinen lukija etsii, "
+        "tai malli on arkkitehti-/talotekniikkamalli ilman runko-osia."
+    )
+    st.stop()
+
+st.success(f"Lähtödatasta löytyi {len(elements)} simuloitavaa osaa.")
 st.subheader("Lähtömallista luetut runko-osat")
-st.dataframe(elements, use_container_width=True)
+st.dataframe(elements, width="stretch")
 
 schedule, status_by_day = run_simulation(
     elements=elements,
@@ -90,16 +100,16 @@ fig = px.timeline(
 )
 fig.update_yaxes(autorange="reversed")
 fig.update_layout(xaxis_title="Simulaatiopäivä", yaxis_title="Rakenneosa", height=600)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 st.subheader("Päiväkohtainen eteneminen")
 if not status_by_day.empty:
     day = st.slider("Valitse päivä", 1, int(status_by_day["day"].max()), 1)
     day_df = status_by_day[status_by_day["day"] == day]
     pivot = day_df.groupby(["storey", "zone", "status"]).size().reset_index(name="count")
-    st.dataframe(day_df[["guid", "name", "ifc_type", "storey", "zone", "task", "status", "finish_day", "delay_reason"]], use_container_width=True)
+    st.dataframe(day_df[["guid", "name", "ifc_type", "storey", "zone", "task", "status", "finish_day", "delay_reason"]], width="stretch")
     bar = px.bar(pivot, x="zone", y="count", color="status", facet_row="storey", barmode="stack")
-    st.plotly_chart(bar, use_container_width=True)
+    st.plotly_chart(bar, width="stretch")
 
 st.subheader("Lataa tulokset")
 output = BytesIO()

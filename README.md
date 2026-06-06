@@ -78,3 +78,11 @@ S1,Slab A,IfcSlab,1,A,Install slabs,1
 3. Tarkempi riippuvuuslogiikka: pilari → palkki → laatta → seuraava kerros.
 4. Nosturin, toimitusten, varastoinnin ja työryhmien agenttipohjainen mallinnus.
 5. Useiden skenaarioiden rinnakkainen vertailu.
+
+## v2 debug notes
+
+If Streamlit logs show only warnings such as `Please replace use_container_width with width`, the app has not crashed. In v2 these warnings have been removed by using `width="stretch"`.
+
+This version also uses a broader IFC element reader. Many real exports do not use only `IfcColumn`, `IfcBeam` and `IfcSlab`; they may use `IfcBuildingElementProxy`, `IfcElementAssembly`, `IfcPlate`, `IfcWallStandardCase` or other classes. The reader now includes these common alternatives.
+
+For Streamlit Community Cloud, `runtime.txt` requests Python 3.12 and `requirements.txt` avoids untested major package versions.
