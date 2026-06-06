@@ -18,6 +18,50 @@ from model.simulation import (
 
 st.set_page_config(page_title="IFC Frame Simulation Pilot", layout="wide")
 
+
+def prepare_3d_status_data(day_df: pd.DataFrame, max_points: int = 5000) -> pd.DataFrame:
+    """Prepare a lightweight 3D status dataframe for Plotly.
+
+    Uses IFC placement coordinates when available. If coordinates are missing
+    or collapsed to one point, falls back to a simple synthetic layout based on
+    row order, storey and zone so the 3D view still works with CSV/sample data.
+    """
+    view = day_df.copy()
+    for col in ["x", "y", "z"]:
+        if col not in view.columns:
+            view[col] = pd.NA
+        view[col] = pd.to_numeric(view[col], errors="coerce")
+
+    has_some_coords = view[["x", "y", "z"]].notna().any(axis=None)
+    spread = 0.0
+    if has_some_coords:
+        spread = float(
+            view[["x", "y", "z"]]
+            .fillna(0)
+            .std(numeric_only=True)
+            .sum()
+        )
+
+    if not has_some_coords or spread == 0.0:
+        # Fallback for sample data or models with unhelpful placements.
+        zone_codes = {z: i for i, z in enumerate(sorted(view["zone"].astype(str).unique()))}
+        idx = range(len(view))
+        view["x"] = [float(i % 40) for i in idx]
+        view["y"] = view["zone"].astype(str).map(zone_codes).fillna(0).astype(float) * 10.0 + [float((i // 40) % 10) for i in idx]
+        view["z"] = pd.to_numeric(view["storey"], errors="coerce").fillna(1).astype(float) * 4.0
+        view["geometry_note"] = "synthetic layout"
+    else:
+        # Fill partial gaps with medians so Plotly can render all rows.
+        for col in ["x", "y", "z"]:
+            median = view[col].median()
+            view[col] = view[col].fillna(0.0 if pd.isna(median) else median)
+        view["geometry_note"] = "IFC ObjectPlacement, approximate"
+
+    view["point_size"] = pd.to_numeric(view.get("quantity", 1), errors="coerce").fillna(1).clip(lower=1)
+    if len(view) > max_points:
+        view = view.sort_values(["status", "storey", "zone", "name"]).head(max_points).copy()
+    return view
+
 st.title("IFC-pohjainen runkosimulaatio — pilotti")
 st.caption("Kevyt versio: IFC/CSV → runko-osat tai työpaketit → skenaario → eteneminen")
 
@@ -221,18 +265,64 @@ fig.update_yaxes(autorange="reversed")
 fig.update_layout(xaxis_title="Simulaatiopäivä", yaxis_title="Rakenneosa / työpaketti", height=700)
 st.plotly_chart(fig, width="stretch")
 
-st.subheader("Päiväkohtainen tilanne")
+st.subheader("Päiväkohtainen tilanne ja 3D-näkymä")
 if not schedule.empty:
     day = st.slider("Valitse päivä", 1, int(schedule["finish_day"].max()), 1)
     day_df = status_for_day(schedule, day)
     pivot = day_df.groupby(["storey", "zone", "status"], dropna=False)["quantity"].sum().reset_index(name="quantity")
-    show_cols = [
-        "guid", "name", "ifc_type", "storey", "zone", "task", "quantity",
-        "material_category", "material", "status", "finish_day", "delay_reason",
-    ]
-    st.dataframe(day_df[show_cols].head(1000), width="stretch")
-    bar = px.bar(pivot, x="zone", y="quantity", color="status", facet_row="storey", barmode="stack")
-    st.plotly_chart(bar, width="stretch")
+
+    status_tab, view3d_tab, table_tab = st.tabs(["Yhteenveto", "3D-statusnäkymä", "Taulukko"])
+
+    with status_tab:
+        bar = px.bar(pivot, x="zone", y="quantity", color="status", facet_row="storey", barmode="stack")
+        bar.update_layout(xaxis_title="Lohko", yaxis_title="Määrä")
+        st.plotly_chart(bar, width="stretch")
+
+    with view3d_tab:
+        st.caption(
+            "3D-näkymä käyttää IFC:n ObjectPlacement-sijaintia, jos se löytyy. "
+            "Tämä on kevyt ja likimääräinen tilannekuva, ei vielä tarkka BIM-geometria."
+        )
+        max_points = st.slider("3D-näkymän enimmäispistemäärä", 100, 10000, 5000, 100)
+        view3d = prepare_3d_status_data(day_df, max_points=max_points)
+        if len(day_df) > len(view3d):
+            st.info(f"3D-näkymässä näytetään {len(view3d)} / {len(day_df)} riviä suorituskyvyn vuoksi.")
+        if not view3d.empty:
+            fig3d = px.scatter_3d(
+                view3d,
+                x="x",
+                y="y",
+                z="z",
+                color="status",
+                symbol="material_category",
+                size="point_size",
+                size_max=18,
+                hover_name="name",
+                hover_data=[
+                    "ifc_type", "material_category", "material", "storey", "zone",
+                    "task", "quantity", "start_day", "finish_day", "delay_reason", "geometry_note",
+                ],
+            )
+            fig3d.update_layout(
+                height=750,
+                scene=dict(
+                    xaxis_title="X",
+                    yaxis_title="Y",
+                    zaxis_title="Z / kerros",
+                ),
+                legend_title_text="Status",
+            )
+            st.plotly_chart(fig3d, width="stretch")
+
+    with table_tab:
+        show_cols = [
+            "guid", "name", "ifc_type", "storey", "zone", "task", "quantity",
+            "material_category", "material", "status", "start_day", "finish_day", "delay_reason", "x", "y", "z",
+        ]
+        existing_cols = [c for c in show_cols if c in day_df.columns]
+        st.dataframe(day_df[existing_cols].head(1000), width="stretch")
+        if len(day_df) > 1000:
+            st.caption("Näytetään ensimmäiset 1000 riviä, jotta selain ei hidastu.")
 
 st.subheader("Lataa tulokset")
 output = BytesIO()
@@ -261,6 +351,6 @@ with st.expander("Mitä tämä pilotti tekee ja mitä se ei vielä tee?"):
 
         Suurissa IFC-malleissa kannattaa käyttää työpakettiryhmittelyä ja assembly-logiikkaa. Muuten yksittäiset palkin, levyn tai ristikon osat voivat vääristää simulaatiota, vaikka ne työmaalla asennettaisiin yhtenä kokonaisuutena.
 
-        Tämä ei vielä sisällä oikeaa 3D-geometriavisualisointia, törmäystarkastelua, tarkkaa asennusjärjestystä, logistiikkareittejä tai tuotannonohjauksen optimointia. Ne voidaan lisätä seuraavissa versioissa.
+        Tämä versio sisältää kevyen 3D-statusnäkymän, joka käyttää IFC:n ObjectPlacement-sijaintia tai tarvittaessa synteettistä sijaintia. Se ei vielä sisällä tarkkaa IFC-geometriaa, bounding boxeja, törmäystarkastelua, tarkkaa asennusjärjestystä, logistiikkareittejä tai tuotannonohjauksen optimointia. Ne voidaan lisätä seuraavissa versioissa.
         """
     )

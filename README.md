@@ -1,16 +1,16 @@
-# IFC Frame Simulation Pilot
+# IFC Frame Simulation Pilot v5
 
-Streamlit-pilotti, jossa IFC- tai CSV-lähtödata muutetaan yksinkertaiseksi runkoasennuksen tuotantosimulaatioksi.
+Kevyt Streamlit-pilotti, jossa IFC- tai CSV-lähtödata muunnetaan runko-osiksi / työpaketeiksi ja simuloidaan asennuksen etenemistä eri skenaarioissa.
 
-## Uutta v4-versiossa
+## Uutta v5-versiossa
 
-- Materiaalidiagnostiikka IFC:stä
-- Materiaalikategorian mukainen rajaus, esimerkiksi Steel / Concrete / Insulation
-- Tarkempi materiaalirajaus, esimerkiksi STEEL/S355J2 tai CONCRETE/C30/37
-- Assembly-logiikka: jos osa on `IfcElementAssembly`-kokonaisuuden lapsi, lapsiosaa ei lasketa erillisenä asennuksena, kun asetus on päällä
-- Työpakettien ryhmittely voidaan tehdä materiaaleittain
+- Kevyt 3D-statusnäkymä Streamlitissä Plotlyllä.
+- Päiväliukusäädin näyttää, mitkä osat / työpaketit ovat valmiita, käynnissä tai odottamassa.
+- IFC:stä yritetään lukea likimääräinen `x`, `y`, `z`-sijainti `ObjectPlacement`-tiedosta.
+- Jos sijaintia ei löydy, käytetään synteettistä 3D-asettelua, jotta näkymä toimii myös CSV- ja esimerkkidatalla.
+- Työpakettien 3D-sijainti muodostetaan ryhmään kuuluvien IFC-objektien sijaintien keskiarvona.
 
-## Paikallinen ajo
+## Asennus paikallisesti
 
 ```bash
 pip install -r requirements.txt
@@ -19,20 +19,11 @@ streamlit run app.py
 
 ## Streamlit Community Cloud
 
-1. Vie tiedostot GitHub-repositorioon.
-2. Valitse Streamlit Community Cloudissa `app.py` päämoduuliksi.
-3. Käytä mieluiten Python 3.12 -runtimea (`runtime.txt`).
+- Vie tiedostot GitHub-repositorioon.
+- Entry point: `app.py`.
+- `requirements.txt` asentaa tarvittavat Python-paketit.
+- `runtime.txt` pyytää Python 3.12 -ympäristöä.
 
-## CSV-sarakkeet
+## Tärkeä rajaus
 
-Vähintään:
-
-```text
-guid,name,ifc_type,storey,zone,task,quantity
-```
-
-Lisäksi v4 ymmärtää nämä vapaaehtoiset sarakkeet:
-
-```text
-material,material_category,parent_assembly_guid,parent_assembly_name
-```
+3D-näkymä ei ole vielä tarkka BIM-geometriaviewer. Se näyttää asennusyksiköt tai työpaketit pisteinä IFC-sijainnin perusteella. Seuraavat mahdolliset kehitysvaiheet ovat bounding box -geometria, glTF/IFC-viewer ja tarkempi GUID-kohtainen väritys.

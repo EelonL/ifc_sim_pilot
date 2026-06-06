@@ -1,1 +1,4 @@
-v4.2 - fixes empty/material filtered aggregation and assembly child filtering after material filters
+IFC Simulation Pilot v5
+- Adds lightweight 3D status view with day slider
+- Reads approximate x/y/z from IFC ObjectPlacement
+- Aggregates work package coordinates from underlying elements
