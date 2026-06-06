@@ -8,11 +8,14 @@ TASK_ORDER = {
     "Install walls": 2,
     "Install members": 2,
     "Install beams": 3,
+    "Install assemblies": 3,
     "Install slabs": 4,
     "Install elements": 5,
 }
 
-REQUIRED_COLUMNS = ["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]
+BASE_COLUMNS = ["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]
+OPTIONAL_COLUMNS = ["material", "material_category", "parent_assembly_guid", "parent_assembly_name"]
+REQUIRED_COLUMNS = BASE_COLUMNS
 
 
 def normalize_elements(df: pd.DataFrame) -> pd.DataFrame:
@@ -20,7 +23,11 @@ def normalize_elements(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
-    out = df[REQUIRED_COLUMNS].copy()
+    out = df.copy()
+    for col in OPTIONAL_COLUMNS:
+        if col not in out.columns:
+            out[col] = "Unknown" if "material" in col else ""
+    out = out[BASE_COLUMNS + OPTIONAL_COLUMNS].copy()
     out["guid"] = out["guid"].astype(str)
     out["name"] = out["name"].astype(str)
     out["ifc_type"] = out["ifc_type"].astype(str)
@@ -28,33 +35,60 @@ def normalize_elements(df: pd.DataFrame) -> pd.DataFrame:
     out["zone"] = out["zone"].fillna("A").astype(str)
     out["task"] = out["task"].fillna("Install elements").astype(str)
     out["quantity"] = pd.to_numeric(out["quantity"], errors="coerce").fillna(1).clip(lower=1)
+    out["material"] = out["material"].fillna("Unknown").astype(str)
+    out["material_category"] = out["material_category"].fillna("Unknown").astype(str)
+    out["parent_assembly_guid"] = out["parent_assembly_guid"].fillna("").astype(str)
+    out["parent_assembly_name"] = out["parent_assembly_name"].fillna("").astype(str)
     out["task_order"] = out["task"].map(TASK_ORDER).fillna(99).astype(int)
-    return out.sort_values(["storey", "zone", "task_order", "ifc_type", "name"]).reset_index(drop=True)
+    return out.sort_values(["storey", "zone", "task_order", "material_category", "ifc_type", "name"]).reset_index(drop=True)
 
 
-def aggregate_elements(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate many IFC objects into installable work packages.
+def filter_elements(
+    df: pd.DataFrame,
+    material_categories: list[str] | None = None,
+    materials: list[str] | None = None,
+    prefer_assemblies: bool = True,
+) -> pd.DataFrame:
+    """Apply user-facing filters before aggregation and simulation."""
+    out = normalize_elements(df)
+    if material_categories:
+        out = out[out["material_category"].isin(material_categories)]
+    if materials:
+        out = out[out["material"].isin(materials)]
+    if prefer_assemblies:
+        # If an IfcBeam/IfcMember/IfcPlate is decomposed under an IfcElementAssembly,
+        # keep the assembly row and do not count the child part as a separate install.
+        out = out[(out["parent_assembly_guid"].eq("")) | (out["ifc_type"].eq("IfcElementAssembly"))]
+    return out.reset_index(drop=True)
 
-    Large production IFCs may contain tens of thousands of objects. For a first
-    Streamlit pilot, it is safer to simulate work packages rather than every bolt,
-    plate, assembly, or member as a separate visual row.
-    """
+
+def aggregate_elements(df: pd.DataFrame, include_material: bool = True) -> pd.DataFrame:
+    """Aggregate many IFC objects into installable work packages."""
     norm = normalize_elements(df)
     group_cols = ["storey", "zone", "task", "ifc_type"]
+    if include_material:
+        group_cols += ["material_category", "material"]
+
     grouped = (
         norm.groupby(group_cols, dropna=False, as_index=False)
         .agg(quantity=("quantity", "sum"), element_count=("guid", "count"))
-        .sort_values(["storey", "zone", "task", "ifc_type"])
+        .sort_values(group_cols)
         .reset_index(drop=True)
     )
     grouped["guid"] = grouped.apply(
-        lambda r: f"GROUP-S{r['storey']}-Z{r['zone']}-{r['task']}-{r['ifc_type']}", axis=1
+        lambda r: f"GROUP-S{r['storey']}-Z{r['zone']}-{r['task']}-{r['ifc_type']}-{r.get('material_category','')}", axis=1
     )
     grouped["name"] = grouped.apply(
-        lambda r: f"{r['task']} | {r['ifc_type']} | S{r['storey']} | Zone {r['zone']} ({int(r['element_count'])} objs)",
+        lambda r: (
+            f"{r['task']} | {r['ifc_type']} | {r.get('material_category','')} | "
+            f"S{r['storey']} | Zone {r['zone']} ({int(r['element_count'])} objs)"
+        ),
         axis=1,
     )
-    return grouped[["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]]
+    for col in OPTIONAL_COLUMNS:
+        if col not in grouped.columns:
+            grouped[col] = "" if "parent" in col else "Unknown"
+    return grouped[BASE_COLUMNS + OPTIONAL_COLUMNS]
 
 
 def run_simulation(
