@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 import tempfile
+from collections import Counter
 from pathlib import Path
+from typing import BinaryIO
+
 import pandas as pd
 
-# Broader list than v1. Real IFC exports often use proxy, assembly, wallstandardcase, plate, etc.
 SUPPORTED_TYPES = [
     "IfcColumn",
     "IfcBeam",
@@ -24,12 +26,32 @@ SUPPORTED_TYPES = [
 REQUIRED_COLUMNS = ["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]
 
 
-def read_ifc_elements(uploaded_file) -> pd.DataFrame:
+def uploaded_bytes(uploaded_file) -> bytes:
+    if hasattr(uploaded_file, "getvalue"):
+        return uploaded_file.getvalue()
+    return uploaded_file.read()
+
+
+def diagnose_ifc(uploaded_file) -> pd.DataFrame:
+    """Fast text-level IFC entity count. Does not require IfcOpenShell."""
+    raw = uploaded_bytes(uploaded_file)
+    text = raw.decode("utf-8", errors="ignore")
+    entity_re = re.compile(r"=\s*([A-Z0-9_]+)\s*\(")
+    counts = Counter(entity_re.findall(text))
+    rows = [{"ifc_entity": k, "count": v} for k, v in counts.items()]
+    if not rows:
+        return pd.DataFrame(columns=["ifc_entity", "count", "used_by_pilot"])
+    df = pd.DataFrame(rows).sort_values("count", ascending=False).reset_index(drop=True)
+    supported_upper = {x.upper() for x in SUPPORTED_TYPES}
+    df["used_by_pilot"] = df["ifc_entity"].isin(supported_upper)
+    return df
+
+
+def read_ifc_elements(uploaded_file, max_objects: int | None = None) -> pd.DataFrame:
     """Read structural-ish elements from an uploaded IFC file.
 
-    This pilot intentionally returns a simple tabular representation. It does
-    not yet read detailed geometry. The key field is the IFC GlobalId, which
-    lets later versions link simulation status back to the 3D object.
+    Returns one row per IFC object. Large models should usually be aggregated
+    in the app before simulation.
     """
     try:
         import ifcopenshell
@@ -39,9 +61,10 @@ def read_ifc_elements(uploaded_file) -> pd.DataFrame:
             "Use the sample CSV mode or install ifcopenshell."
         ) from exc
 
+    raw = uploaded_bytes(uploaded_file)
     suffix = Path(getattr(uploaded_file, "name", "model.ifc")).suffix or ".ifc"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded_file.getvalue())
+        tmp.write(raw)
         tmp_path = tmp.name
 
     model = ifcopenshell.open(tmp_path)
@@ -50,8 +73,7 @@ def read_ifc_elements(uploaded_file) -> pd.DataFrame:
     for ifc_type in SUPPORTED_TYPES:
         try:
             objects = model.by_type(ifc_type)
-        except RuntimeError:
-            # Some IFC schemas do not contain all entity names.
+        except Exception:
             continue
 
         for obj in objects:
@@ -62,7 +84,7 @@ def read_ifc_elements(uploaded_file) -> pd.DataFrame:
             task = _default_task(ifc_type, name)
             rows.append(
                 {
-                    "guid": guid,
+                    "guid": guid or f"NO-GUID-{ifc_type}-{len(rows)}",
                     "name": str(name),
                     "ifc_type": ifc_type,
                     "storey": storey,
@@ -71,6 +93,10 @@ def read_ifc_elements(uploaded_file) -> pd.DataFrame:
                     "quantity": 1,
                 }
             )
+            if max_objects is not None and len(rows) >= max_objects:
+                break
+        if max_objects is not None and len(rows) >= max_objects:
+            break
 
     if not rows:
         return pd.DataFrame(columns=REQUIRED_COLUMNS)
@@ -78,14 +104,11 @@ def read_ifc_elements(uploaded_file) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["storey"] = pd.to_numeric(df["storey"], errors="coerce").fillna(1).astype(int)
     df["zone"] = df["zone"].fillna("A")
-    # Remove rare duplicates if an element is returned through overlapping categories.
     df = df.drop_duplicates(subset=["guid"], keep="first")
     return df[REQUIRED_COLUMNS]
 
 
 def _safe_storey(obj) -> int:
-    """Try to find the containing building storey from IFC spatial relations."""
-    # Common direct containment: element -> IfcRelContainedInSpatialStructure -> storey
     try:
         for rel in getattr(obj, "ContainedInStructure", []) or []:
             structure = getattr(rel, "RelatingStructure", None)
@@ -94,7 +117,6 @@ def _safe_storey(obj) -> int:
     except Exception:
         pass
 
-    # Some exports nest through assemblies or decomposition. Walk one step upward.
     try:
         for rel in getattr(obj, "Decomposes", []) or []:
             parent = getattr(rel, "RelatingObject", None)
@@ -111,7 +133,6 @@ def _storey_number_from_name(name: str) -> int:
     nums = re.findall(r"-?\d+", text)
     if not nums:
         return 1
-    # Avoid returning 0 because the pilot sorting/status view is simpler with 1-based floors.
     value = int(nums[0])
     return value if value > 0 else 1
 
