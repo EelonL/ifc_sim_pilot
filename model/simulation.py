@@ -56,15 +56,33 @@ def filter_elements(
     if materials:
         out = out[out["material"].isin(materials)]
     if prefer_assemblies:
-        # If an IfcBeam/IfcMember/IfcPlate is decomposed under an IfcElementAssembly,
-        # keep the assembly row and do not count the child part as a separate install.
-        out = out[(out["parent_assembly_guid"].eq("")) | (out["ifc_type"].eq("IfcElementAssembly"))]
+        # If a child part is decomposed under an IfcElementAssembly AND that parent
+        # assembly is still present after the user's filters, keep the assembly row
+        # and do not count the child part as a separate install.
+        #
+        # Important: this must be done after material filtering. If the user selects
+        # Concrete and the parent assembly itself is Steel/Unknown, concrete child
+        # elements should not disappear merely because they have a parent assembly.
+        parent_guids = set(out.loc[out["ifc_type"].eq("IfcElementAssembly"), "guid"].astype(str))
+        child_counted_by_parent = (
+            out["parent_assembly_guid"].astype(str).isin(parent_guids)
+            & out["ifc_type"].ne("IfcElementAssembly")
+        )
+        out = out.loc[~child_counted_by_parent].copy()
     return out.reset_index(drop=True)
 
 
 def aggregate_elements(df: pd.DataFrame, include_material: bool = True) -> pd.DataFrame:
-    """Aggregate many IFC objects into installable work packages."""
+    """Aggregate many IFC objects into installable work packages.
+
+    Compatible with both pandas 2.x and 3.x. Handles empty filtered data safely.
+    """
     norm = normalize_elements(df)
+
+    empty_cols = BASE_COLUMNS + OPTIONAL_COLUMNS
+    if norm.empty:
+        return pd.DataFrame(columns=empty_cols)
+
     group_cols = ["storey", "zone", "task", "ifc_type"]
     if include_material:
         group_cols += ["material_category", "material"]
@@ -75,20 +93,44 @@ def aggregate_elements(df: pd.DataFrame, include_material: bool = True) -> pd.Da
         .sort_values(group_cols)
         .reset_index(drop=True)
     )
-    grouped["guid"] = grouped.apply(
-        lambda r: f"GROUP-S{r['storey']}-Z{r['zone']}-{r['task']}-{r['ifc_type']}-{r.get('material_category','')}", axis=1
+
+    if grouped.empty:
+        return pd.DataFrame(columns=empty_cols)
+
+    # Avoid DataFrame.apply(axis=1) here: in pandas 3.x, assigning the result of
+    # apply on an empty or edge-case frame can raise "Cannot set a DataFrame with
+    # multiple columns to the single column ...". Vectorised string construction is
+    # safer and faster.
+    material_part = ""
+    if "material_category" in grouped.columns:
+        material_part = grouped["material_category"].fillna("").astype(str)
+    else:
+        material_part = pd.Series([""] * len(grouped), index=grouped.index)
+
+    grouped["guid"] = (
+        "GROUP-S" + grouped["storey"].astype(str)
+        + "-Z" + grouped["zone"].astype(str)
+        + "-" + grouped["task"].astype(str)
+        + "-" + grouped["ifc_type"].astype(str)
+        + "-" + material_part.astype(str)
     )
-    grouped["name"] = grouped.apply(
-        lambda r: (
-            f"{r['task']} | {r['ifc_type']} | {r.get('material_category','')} | "
-            f"S{r['storey']} | Zone {r['zone']} ({int(r['element_count'])} objs)"
-        ),
-        axis=1,
+
+    grouped["name"] = (
+        grouped["task"].astype(str)
+        + " | " + grouped["ifc_type"].astype(str)
+        + " | " + material_part.astype(str)
+        + " | S" + grouped["storey"].astype(str)
+        + " | Zone " + grouped["zone"].astype(str)
+        + " (" + grouped["element_count"].astype(int).astype(str) + " objs)"
     )
+
     for col in OPTIONAL_COLUMNS:
         if col not in grouped.columns:
             grouped[col] = "" if "parent" in col else "Unknown"
-    return grouped[BASE_COLUMNS + OPTIONAL_COLUMNS]
+        else:
+            grouped[col] = grouped[col].fillna("" if "parent" in col else "Unknown").astype(str)
+
+    return grouped[BASE_COLUMNS + OPTIONAL_COLUMNS].reset_index(drop=True)
 
 
 def run_simulation(
