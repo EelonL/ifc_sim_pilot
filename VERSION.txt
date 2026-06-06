@@ -1,0 +1,2 @@
+ifc_sim_pilot_v4.1
+Fixes ImportError by ensuring app.py and bim/ifc_reader.py have matching material-diagnostics functions.
