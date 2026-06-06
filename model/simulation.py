@@ -14,7 +14,7 @@ TASK_ORDER = {
 }
 
 BASE_COLUMNS = ["guid", "name", "ifc_type", "storey", "zone", "task", "quantity"]
-OPTIONAL_COLUMNS = ["material", "material_category", "parent_assembly_guid", "parent_assembly_name"]
+OPTIONAL_COLUMNS = ["material", "material_category", "parent_assembly_guid", "parent_assembly_name", "x", "y", "z"]
 REQUIRED_COLUMNS = BASE_COLUMNS
 
 
@@ -26,7 +26,10 @@ def normalize_elements(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for col in OPTIONAL_COLUMNS:
         if col not in out.columns:
-            out[col] = "Unknown" if "material" in col else ""
+            if col in ["x", "y", "z"]:
+                out[col] = np.nan
+            else:
+                out[col] = "Unknown" if "material" in col else ""
     out = out[BASE_COLUMNS + OPTIONAL_COLUMNS].copy()
     out["guid"] = out["guid"].astype(str)
     out["name"] = out["name"].astype(str)
@@ -39,6 +42,8 @@ def normalize_elements(df: pd.DataFrame) -> pd.DataFrame:
     out["material_category"] = out["material_category"].fillna("Unknown").astype(str)
     out["parent_assembly_guid"] = out["parent_assembly_guid"].fillna("").astype(str)
     out["parent_assembly_name"] = out["parent_assembly_name"].fillna("").astype(str)
+    for coord in ["x", "y", "z"]:
+        out[coord] = pd.to_numeric(out[coord], errors="coerce")
     out["task_order"] = out["task"].map(TASK_ORDER).fillna(99).astype(int)
     return out.sort_values(["storey", "zone", "task_order", "material_category", "ifc_type", "name"]).reset_index(drop=True)
 
@@ -89,7 +94,13 @@ def aggregate_elements(df: pd.DataFrame, include_material: bool = True) -> pd.Da
 
     grouped = (
         norm.groupby(group_cols, dropna=False, as_index=False)
-        .agg(quantity=("quantity", "sum"), element_count=("guid", "count"))
+        .agg(
+            quantity=("quantity", "sum"),
+            element_count=("guid", "count"),
+            x=("x", "mean"),
+            y=("y", "mean"),
+            z=("z", "mean"),
+        )
         .sort_values(group_cols)
         .reset_index(drop=True)
     )
@@ -125,7 +136,12 @@ def aggregate_elements(df: pd.DataFrame, include_material: bool = True) -> pd.Da
     )
 
     for col in OPTIONAL_COLUMNS:
-        if col not in grouped.columns:
+        if col in ["x", "y", "z"]:
+            if col not in grouped.columns:
+                grouped[col] = np.nan
+            else:
+                grouped[col] = pd.to_numeric(grouped[col], errors="coerce")
+        elif col not in grouped.columns:
             grouped[col] = "" if "parent" in col else "Unknown"
         else:
             grouped[col] = grouped[col].fillna("" if "parent" in col else "Unknown").astype(str)
