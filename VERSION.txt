@@ -1,1 +1,7 @@
-v4.2 - fixes empty/material filtered aggregation and assembly child filtering after material filters
+IFC Simulation Pilot v5.2
+
+Patch release:
+- Fixes Streamlit slider crash when the simulated schedule duration is 1 day or finish_day values are missing.
+- Keeps the lightweight 3D status view introduced in v5.
+- Enforces shared daily crew and crane capacity across work packages.
+- Removes uploaded IFC temporary files immediately after parsing.

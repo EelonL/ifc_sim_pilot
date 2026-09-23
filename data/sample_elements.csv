@@ -1,17 +1,17 @@
-guid,name,ifc_type,storey,zone,task,quantity,material,material_category,parent_assembly_guid,parent_assembly_name
-C1,Column A1,IfcColumn,1,A,Install columns,1,STEEL/S355J2,Steel,,
-C2,Column A2,IfcColumn,1,A,Install columns,1,STEEL/S355J2,Steel,,
-C3,Column B1,IfcColumn,1,B,Install columns,1,STEEL/S355J2,Steel,,
-C4,Column B2,IfcColumn,1,B,Install columns,1,STEEL/S355J2,Steel,,
-B1,Beam A1-A2,IfcBeam,1,A,Install beams,1,STEEL/S355J2,Steel,,
-B2,Beam B1-B2,IfcBeam,1,B,Install beams,1,STEEL/S355J2,Steel,,
-S1,Slab A,IfcSlab,1,A,Install slabs,1,CONCRETE/C30/37,Concrete,,
-S2,Slab B,IfcSlab,1,B,Install slabs,1,CONCRETE/C30/37,Concrete,,
-C5,Column A1 L2,IfcColumn,2,A,Install columns,1,STEEL/S355J2,Steel,,
-C6,Column A2 L2,IfcColumn,2,A,Install columns,1,STEEL/S355J2,Steel,,
-C7,Column B1 L2,IfcColumn,2,B,Install columns,1,STEEL/S355J2,Steel,,
-C8,Column B2 L2,IfcColumn,2,B,Install columns,1,STEEL/S355J2,Steel,,
-B3,Beam A1-A2 L2,IfcBeam,2,A,Install beams,1,STEEL/S355J2,Steel,,
-B4,Beam B1-B2 L2,IfcBeam,2,B,Install beams,1,STEEL/S355J2,Steel,,
-S3,Slab A L2,IfcSlab,2,A,Install slabs,1,CONCRETE/C30/37,Concrete,,
-S4,Slab B L2,IfcSlab,2,B,Install slabs,1,CONCRETE/C30/37,Concrete,,
+guid,name,ifc_type,storey,zone,task,quantity,material,material_category,parent_assembly_guid,parent_assembly_name,x,y,z
+C1,Column A1,IfcColumn,1,A,Install columns,1,STEEL/S355J2,Steel,,,0,0,0
+C2,Column A2,IfcColumn,1,A,Install columns,1,STEEL/S355J2,Steel,,,10,0,0
+C3,Column B1,IfcColumn,1,B,Install columns,1,STEEL/S355J2,Steel,,,0,10,0
+C4,Column B2,IfcColumn,1,B,Install columns,1,STEEL/S355J2,Steel,,,10,10,0
+B1,Beam A1-A2,IfcBeam,1,A,Install beams,1,STEEL/S355J2,Steel,,,5,0,4
+B2,Beam B1-B2,IfcBeam,1,B,Install beams,1,STEEL/S355J2,Steel,,,5,10,4
+S1,Slab A,IfcSlab,1,A,Install slabs,1,CONCRETE/C30/37,Concrete,,,5,2,4.5
+S2,Slab B,IfcSlab,1,B,Install slabs,1,CONCRETE/C30/37,Concrete,,,5,12,4.5
+C5,Column A1 L2,IfcColumn,2,A,Install columns,1,STEEL/S355J2,Steel,,,0,0,5
+C6,Column A2 L2,IfcColumn,2,A,Install columns,1,STEEL/S355J2,Steel,,,10,0,5
+C7,Column B1 L2,IfcColumn,2,B,Install columns,1,STEEL/S355J2,Steel,,,0,10,5
+C8,Column B2 L2,IfcColumn,2,B,Install columns,1,STEEL/S355J2,Steel,,,10,10,5
+B3,Beam A1-A2 L2,IfcBeam,2,A,Install beams,1,STEEL/S355J2,Steel,,,5,0,9
+B4,Beam B1-B2 L2,IfcBeam,2,B,Install beams,1,STEEL/S355J2,Steel,,,5,10,9
+S3,Slab A L2,IfcSlab,2,A,Install slabs,1,CONCRETE/C30/37,Concrete,,,5,2,9.5
+S4,Slab B L2,IfcSlab,2,B,Install slabs,1,CONCRETE/C30/37,Concrete,,,5,12,9.5
